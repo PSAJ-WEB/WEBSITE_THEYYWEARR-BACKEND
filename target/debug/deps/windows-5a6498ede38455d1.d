@@ -1,0 +1,10 @@
+D:\12 SEMESTER 2\PSAJ\BE\target\debug\deps\libwindows-5a6498ede38455d1.rmeta: C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\lib.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows/mod.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\mod.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\Foundation\mod.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\System\mod.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\System\SystemInformation\mod.rs
+
+D:\12 SEMESTER 2\PSAJ\BE\target\debug\deps\windows-5a6498ede38455d1.d: C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\lib.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows/mod.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\mod.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\Foundation\mod.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\System\mod.rs C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\System\SystemInformation\mod.rs
+
+C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\lib.rs:
+C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows/mod.rs:
+C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\mod.rs:
+C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\Foundation\mod.rs:
+C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\System\mod.rs:
+C:\Users\ACER\.cargo\registry\src\index.crates.io-6f17d22bba15001f\windows-0.52.0\src\Windows\Win32\System\SystemInformation\mod.rs:
