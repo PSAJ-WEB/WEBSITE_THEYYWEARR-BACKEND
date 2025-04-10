@@ -4,4 +4,4 @@ installCommand = "cargo install --path ."
 startCommand = "./target/release/your-binary-name"
 
 [deploy]
-environment = { DATABASE_URL = "postgres://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" }
+environment = { DATABASE_URL = "${DATABASE_URL}" }
