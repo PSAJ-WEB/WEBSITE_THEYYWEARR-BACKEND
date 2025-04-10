@@ -1,0 +1,7 @@
+[build]
+builder = "docker"
+installCommand = "cargo install --path ."
+startCommand = "./target/release/your-binary-name"
+
+[deploy]
+environment = { DATABASE_URL = "postgres://$PGUSER:$PGPASSWORD@$PGHOST:$PGPORT/$PGDATABASE" }

@@ -3,6 +3,8 @@ use actix_files::NamedFile;
 use chrono::{DateTime, Utc};
 use reqwest;
 use serde_json;
+use dotenv::dotenv;
+use std::env;
 // use actix_web::http::header::ContentType;
 use actix_multipart::Multipart; // Untuk menangani multipart form data
 use actix_web::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
@@ -2184,12 +2186,15 @@ async fn main() -> std::io::Result<()> {
         .allowed_headers(vec![AUTHORIZATION, ACCEPT, CONTENT_TYPE])
         .max_age(3600);
     // Create users table if it doesn't exist
-    let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
-        NoTls,
-    )
-    .await
-    .unwrap();
+    dotenv().ok(); // Load .env file
+    
+    let database_url = env::var("DATABASE_URL")
+        .expect("DATABASE_URL must be set in .env");
+    
+    // Gunakan database_url di koneksi PostgreSQL
+    let (client, connection) = tokio_postgres::connect(&database_url, NoTls)
+        .await
+        .unwrap();
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             eprintln!("Connection error: {}", e);
