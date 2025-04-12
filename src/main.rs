@@ -5,6 +5,7 @@ use reqwest;
 use serde_json;
 use dotenv::dotenv;
 use std::env;
+use std::collections::HashMap;
 // use actix_web::http::header::ContentType;
 use actix_multipart::Multipart; // Untuk menangani multipart form data
 use actix_web::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
@@ -1918,7 +1919,7 @@ async fn get_products() -> Result<HttpResponse, ApiError> {
 
     let products = client
         .query(
-            "SELECT id, name, category, price, default_image FROM products",
+            "SELECT id, name, category, price, default_image FROM products ORDER BY id ASC",
             &[],
         )
         .await?;
@@ -2122,8 +2123,12 @@ async fn toggle_product_like(
         "likes_count": likes_count
     })))
 }
-// Get liked products for a user
-async fn get_user_likes(user_id: web::Path<i32>) -> Result<HttpResponse, ApiError> {
+async fn get_user_likes(
+    user_id: web::Path<i32>,
+    web::Query(params): web::Query<HashMap<String, String>>,
+) -> Result<HttpResponse, ApiError> {
+    let search_query = params.get("search").map(|s| s.to_lowercase());
+
     let (client, connection) = tokio_postgres::connect(
         "postgres://postgres:erida999@localhost:5432/postgres",
         NoTls,
@@ -2136,17 +2141,33 @@ async fn get_user_likes(user_id: web::Path<i32>) -> Result<HttpResponse, ApiErro
         }
     });
 
-    let liked_products = client
-        .query(
-            "SELECT p.id, p.name, p.category, p.price, p.default_image 
-             FROM products p
-             JOIN product_likes pl ON p.id = pl.product_id
-             WHERE pl.user_id = $1",
-            &[&user_id.into_inner()],
-        )
-        .await?;
+    let query = match search_query {
+        Some(query) if !query.is_empty() => {
+            // Query dengan pencarian dan urutkan berdasarkan ID ascending
+            client.query(
+                "SELECT p.id, p.name, p.category, p.price, p.default_image 
+                 FROM products p
+                 JOIN product_likes pl ON p.id = pl.product_id
+                 WHERE pl.user_id = $1 
+                 AND LOWER(p.name) LIKE $2
+                 ORDER BY p.id ASC",  // Ditambahkan ORDER BY p.id ASC
+                &[&user_id.into_inner(), &format!("%{}%", query)],
+            ).await?
+        },
+        _ => {
+            // Tanpa query pencarian - tampilkan semua favorit diurutkan by ID
+            client.query(
+                "SELECT p.id, p.name, p.category, p.price, p.default_image 
+                 FROM products p
+                 JOIN product_likes pl ON p.id = pl.product_id
+                 WHERE pl.user_id = $1
+                 ORDER BY p.id ASC",  // Ditambahkan ORDER BY p.id ASC
+                &[&user_id.into_inner()],
+            ).await?
+        }
+    };
 
-    let products: Vec<Product> = liked_products
+    let products: Vec<Product> = query
         .iter()
         .map(|row| Product {
             id: row.get(0),
@@ -2166,7 +2187,6 @@ async fn get_user_likes(user_id: web::Path<i32>) -> Result<HttpResponse, ApiErro
 
     Ok(HttpResponse::Ok().json(products))
 }
-
 
 
 #[actix_web::main] // Di main.rs atau lib.rs
