@@ -281,7 +281,7 @@ struct CartItemResponse {
 #[derive(Debug, Serialize)]
 struct CartResponse {
     items: Vec<CartItemResponse>,
-    total_price: f64,
+    total_price: String,
 }
 
 async fn add_to_cart(
@@ -303,39 +303,47 @@ async fn add_to_cart(
     });
 
     // Get product details including category
-    let product = client
-        .query_one(
-            "SELECT name, price, category, default_image FROM products WHERE id = $1",
-            &[&cart_item.product_id],
-        )
-        .await?;
+    let product = match client.query_one(
+        "SELECT name, price, category, default_image FROM products WHERE id = $1",
+        &[&cart_item.product_id],
+    ).await {
+        Ok(row) => row,
+        Err(e) => {
+            eprintln!("Product not found: {}", e);
+            return Err(ApiError::NotFound("Product not found".to_string()));
+        }
+    };
 
     // Try to insert or update existing cart item
-    let result = client
-        .query_one(
-            r#"
+    let result = match client.query_one(
+        r#"
         INSERT INTO user_carts (user_id, product_id, color, color_code, quantity)
         VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (user_id, product_id, color_code) 
         DO UPDATE SET quantity = user_carts.quantity + EXCLUDED.quantity
         RETURNING id, quantity
         "#,
-            &[
-                &user_id,
-                &cart_item.product_id,
-                &cart_item.color,
-                &cart_item.color_code,
-                &cart_item.quantity,
-            ],
-        )
-        .await?;
+        &[
+            &user_id,
+            &cart_item.product_id,
+            &cart_item.color,
+            &cart_item.color_code,
+            &cart_item.quantity,
+        ],
+    ).await {
+        Ok(row) => row,
+        Err(e) => {
+            eprintln!("Failed to add to cart: {}", e);
+            return Err(ApiError::DatabaseError("Failed to add to cart".to_string()));
+        }
+    };
 
     let response = CartItemResponse {
         id: result.get(0),
         product_id: cart_item.product_id,
         product_name: product.get(0),
-        product_category: product.get(2), // Added category
-        product_image: product.get(3),    // Changed from 2 to 3
+        product_category: product.get(2),
+        product_image: product.get(3),
         color: cart_item.color.clone(),
         color_code: cart_item.color_code.clone(),
         quantity: result.get(1),
@@ -350,8 +358,7 @@ async fn get_cart_items(path: web::Path<i32>) -> Result<HttpResponse, ApiError> 
     let (client, connection) = tokio_postgres::connect(
         "postgres://postgres:erida999@localhost:5432/postgres",
         NoTls,
-    )
-    .await?;
+    ).await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -359,53 +366,42 @@ async fn get_cart_items(path: web::Path<i32>) -> Result<HttpResponse, ApiError> 
         }
     });
 
-    let items = client
-        .query(
-            r#"
-        SELECT 
-            c.id, 
-            c.product_id, 
-            p.name as product_name, 
-            p.category,
-            p.default_image as product_image,
-            c.color, 
-            c.color_code, 
-            c.quantity, 
-            p.price
-        FROM user_carts c
-        JOIN products p ON c.product_id = p.id
-        WHERE c.user_id = $1
-        ORDER BY c.created_at DESC
-        "#,
-            &[&user_id],
-        )
-        .await?;
+    let items = client.query(
+        r#"SELECT c.id, c.product_id, p.name, p.category, p.default_image, 
+                  c.color, c.color_code, c.quantity, p.price
+           FROM user_carts c
+           JOIN products p ON c.product_id = p.id
+           WHERE c.user_id = $1"#,
+        &[&user_id]
+    ).await?;
+
     let mut total_price = 0.0;
     let cart_items: Vec<CartItemResponse> = items
         .iter()
         .map(|row| {
-            let price: String = row.get(8);  // Changed from 7 to 8 since we added a column
+            let price: String = row.get(8);
             let price_val = price.parse::<f64>().unwrap_or(0.0);
-            total_price += price_val * row.get::<_, i32>(7) as f64;  // Changed from 6 to 7
+            total_price += price_val * row.get::<_, i32>(7) as f64;
 
             CartItemResponse {
                 id: row.get(0),
                 product_id: row.get(1),
                 product_name: row.get(2),
-                product_category: row.get(3),  // Added this
-                product_image: row.get(4),      // Changed from 3 to 4
-                color: row.get(5),              // Changed from 4 to 5
-                color_code: row.get(6),         // Changed from 5 to 6
-                quantity: row.get(7),            // Changed from 6 to 7
+                product_category: row.get(3),
+                product_image: row.get(4),
+                color: row.get(5),
+                color_code: row.get(6),
+                quantity: row.get(7),
                 price,
             }
         })
         .collect();
 
-    Ok(HttpResponse::Ok().json(CartResponse {
-        items: cart_items,
-        total_price,
-    }))
+    Ok(HttpResponse::Ok().json(json!({
+        "items": cart_items,
+        "subtotal": total_price,  // Pastikan menggunakan field name 'subtotal'
+        "total_price": total_price
+    })))
 }
 
 async fn get_cart_count(path: web::Path<i32>) -> Result<HttpResponse, ApiError> {
@@ -1239,6 +1235,13 @@ impl From<tokio_postgres::Error> for ApiError {
     }
 }
 
+// Di bagian dimana Anda mendefinisikan ApiError
+impl From<Box<dyn std::error::Error>> for ApiError {
+    fn from(err: Box<dyn std::error::Error>) -> Self {
+        ApiError::DatabaseError(err.to_string())
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct AddressRequest {
     recipient_name: String,
@@ -1594,49 +1597,7 @@ async fn detect_address_type(address: &str) -> Result<&'static str, Box<dyn std:
     }
 
     // Default to home if no specific type detected
-    Ok("home")
-}
-
-async fn get_default_address(user_id: web::Path<i32>) -> Result<HttpResponse, ApiError> {
-    // Connect to database
-    let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
-        NoTls,
-    )
-    .await?;
-
-    // Handle connection in background
-    tokio::spawn(async move {
-        if let Err(e) = connection.await {
-            eprintln!("Connection error: {}", e);
-        }
-    });
-
-    // Execute query
-    match client
-        .query_opt(
-            "SELECT id, recipient_name, phone_number, address, zip_code, is_default, created_at 
-         FROM user_addresses 
-         WHERE user_id = $1 AND is_default = TRUE",
-            &[&user_id.into_inner()],
-        )
-        .await?
-    {
-        Some(row) => {
-            let address = AddressResponse {
-                id: row.get(0),
-                recipient_name: row.get(1),
-                phone_number: row.get(2),
-                address: row.get(3),
-                zip_code: row.get(4),
-                is_default: row.get(5),
-                address_type: row.get(6),
-                created_at: row.get(7),
-            };
-            Ok(HttpResponse::Ok().json(address))
-        }
-        None => Err(ApiError::NotFound("No default address found".to_string())),
-    }
+    Ok("Home")
 }
 
 #[derive(Debug, Serialize)]
@@ -1647,7 +1608,7 @@ pub struct OrderItem {
     pub color: String,
     pub color_code: String,
     pub quantity: i32,
-    pub price: f64,
+    pub price: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -1655,7 +1616,7 @@ pub struct UserOrder {
     pub id: i32,
     pub order_date: chrono::NaiveDateTime,
     pub status: String,
-    pub total_amount: f64,
+    pub total_amount: String,
     pub items: Vec<OrderItem>,
 }
 
@@ -1725,28 +1686,29 @@ async fn get_user_orders(user_id: web::Path<i32>) -> Result<HttpResponse, ApiErr
 
 #[derive(Debug, Deserialize)]
 struct CreateOrderRequest {
+    total_amount: String,
     items: Vec<OrderItemRequest>,
+    address_id: Option<i32>,  // Optional address ID
+    notes: Option<String>,    // Optional notes
 }
 
 #[derive(Debug, Deserialize)]
 struct OrderItemRequest {
+    product_id: i32,
     product_name: String,
     product_image: Option<String>,
     color: String,
     color_code: String,
     quantity: i32,
-    price: f64,
+    price: String,
+    category: String,
 }
 
-async fn create_order(
-    user_id: web::Path<i32>,
-    order_data: web::Json<CreateOrderRequest>,
-) -> Result<HttpResponse, ApiError> {
-    let (mut client, connection) = tokio_postgres::connect(
+async fn get_default_address(user_id: web::Path<i32>) -> Result<HttpResponse, ApiError> {
+    let (client, connection) = tokio_postgres::connect(
         "postgres://postgres:erida999@localhost:5432/postgres",
         NoTls,
-    )
-    .await?;
+    ).await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -1754,59 +1716,181 @@ async fn create_order(
         }
     });
 
-    // Calculate total amount
-    let total_amount: f64 = order_data
-        .items
-        .iter()
-        .map(|item| item.price * item.quantity as f64)
+    match client.query_one(
+        r#"
+        SELECT id, recipient_name, phone_number, address, zip_code, is_default, address_type
+        FROM user_addresses
+        WHERE user_id = $1 AND is_default = TRUE
+        LIMIT 1
+        "#,
+        &[&user_id.into_inner()],
+    ).await {
+        Ok(row) => {
+            let address = AddressResponse {
+                id: row.get(0),
+                recipient_name: row.get(1),
+                phone_number: row.get(2),
+                address: row.get(3),
+                zip_code: row.get(4),
+                is_default: row.get(5),
+                address_type: row.get(6),
+                created_at: Utc::now(),
+            };
+            Ok(HttpResponse::Ok().json(address))
+        }
+        Err(_) => Err(ApiError::NotFound("No default address found".to_string())),
+    }
+}
+async fn create_order(
+    path: web::Path<i32>,
+    order_data: web::Json<CreateOrderRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let user_id = path.into_inner();
+    
+    // Input validation
+    let total_amount: f64 = order_data.total_amount.parse().map_err(|_| {
+        ApiError::ValidationError("Invalid total amount format".to_string())
+    })?;
+    
+    if total_amount <= 0.0 {
+        return Err(ApiError::ValidationError("Total amount must be positive".to_string()));
+    }
+
+    // Parse each item's price
+    let items: Result<Vec<ParsedOrderItem>, ApiError> = order_data.items.iter()
+        .map(|item| {
+            let price: f64 = item.price.parse().map_err(|_| {
+                ApiError::ValidationError(format!("Invalid price format for item {}", item.product_id))
+            })?;
+            
+            Ok(ParsedOrderItem {
+                product_id: item.product_id,
+                product_name: item.product_name.clone(),
+                product_image: item.product_image.clone(),
+                color: item.color.clone(),
+                color_code: item.color_code.clone(),
+                quantity: item.quantity,
+                price: item.price.clone(), // Keep original string for DB
+                parsed_price: price,       // Parsed value for calculations
+                category: item.category.clone(),
+            })
+        })
+        .collect();
+
+    let items = items?;
+    
+    // Calculate total from parsed values to verify
+    let calculated_total: f64 = items.iter()
+        .map(|item| item.parsed_price * item.quantity as f64)
         .sum();
+    
+    if (calculated_total - total_amount).abs() > 0.01 {
+        return Err(ApiError::ValidationError(
+            "Submitted total doesn't match calculated total".to_string()
+        ));
+    }
 
-    // Start transaction - THIS IS THE FIXED PART
-    let transaction = client.build_transaction().start().await?;
 
-    // Create order
-    let order_row = transaction
-        .query_one(
-            "INSERT INTO user_orders (user_id, total_amount)
-         VALUES ($1, $2)
-         RETURNING id, order_date, status",
-            &[&user_id.into_inner(), &total_amount],
-        )
-        .await?;
+    let (mut client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    ).await.map_err(|e| {
+        eprintln!("Database connection error: {}", e);
+        ApiError::DatabaseError("Failed to connect to database".into())
+    })?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    // Start transaction
+    let transaction = client.transaction().await.map_err(|e| {
+        eprintln!("Transaction error: {}", e);
+        ApiError::DatabaseError("Failed to start transaction".into())
+    })?;
+
+    // 1. Create the order with address_id and notes if provided
+    let order_row = transaction.query_one(
+        r#"
+        INSERT INTO user_orders 
+            (user_id, total_amount, status, address_id, notes) 
+        VALUES ($1, $2, 'pending', $3, $4)
+        RETURNING id, order_date
+        "#,
+        &[
+            &user_id, 
+            &order_data.total_amount,
+            &order_data.address_id,
+            &order_data.notes
+        ],
+    ).await.map_err(|e| {
+        eprintln!("Failed to create order: {}", e);
+        ApiError::DatabaseError("Failed to create order".into())
+    })?;
 
     let order_id: i32 = order_row.get(0);
-    let order_date: chrono::NaiveDateTime = order_row.get(1);
-    let status: String = order_row.get(2);
+    let total_amount: String = order_row.get(1);
 
-    // Add order items
+    // 2. Add order items with category
     for item in &order_data.items {
-        transaction
-            .execute(
-                "INSERT INTO order_items 
-             (order_id, product_name, product_image, color, color_code, quantity, price)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
-                &[
-                    &order_id,
-                    &item.product_name,
-                    &item.product_image,
-                    &item.color,
-                    &item.color_code,
-                    &item.quantity,
-                    &item.price,
-                ],
+        transaction.execute(
+            r#"
+            INSERT INTO order_items (
+                order_id, 
+                product_id,
+                product_name, 
+                product_image, 
+                color, 
+                color_code, 
+                quantity, 
+                price,
+                category
             )
-            .await?;
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+            "#,
+            &[
+                &order_id,
+                &item.product_id,
+                &item.product_name,
+                &item.product_image,
+                &item.color,
+                &item.color_code,
+                &item.quantity,
+                &item.price,
+                &item.category,
+            ],
+        ).await.map_err(|e| {
+            eprintln!("Failed to insert order item: {}", e);
+            ApiError::DatabaseError("Failed to add order items".into())
+        })?;
     }
 
     // Commit transaction
-    transaction.commit().await?;
+    transaction.commit().await.map_err(|e| {
+        eprintln!("Failed to commit transaction: {}", e);
+        ApiError::DatabaseError("Failed to complete order".into())
+    })?;
 
-    Ok(HttpResponse::Created().json(serde_json::json!({
-        "message": "Order created successfully",
-        "order_id": order_id
+    Ok(HttpResponse::Created().json(json!({
+        "order_id": order_id,
+        "total_amount": total_amount, // Kirim kembali total_amount
+        "message": "Order created successfully"
     })))
 }
 
+struct ParsedOrderItem {
+    product_id: i32,
+    product_name: String,
+    product_image: Option<String>,
+    color: String,
+    color_code: String,
+    quantity: i32,
+    price: String,      // Original string for DB
+    parsed_price: f64,  // Parsed value for validation
+    category: String,
+}
 #[derive(Debug, Deserialize)]
 struct UpdateProduct {
     name: Option<String>,
@@ -2450,6 +2534,292 @@ async fn get_user_likes(
     Ok(HttpResponse::Ok().json(products))
 }
 
+// Update your existing structs and add new ones:
+
+
+
+#[derive(Deserialize)]
+struct VerifyCodeRequest {
+    email: String,
+    code: String,
+}
+
+#[derive(Deserialize)]
+struct NewPasswordRequest {
+    email: String,
+    code: String,  // Include code in the final request for additional validation
+    new_password: String,
+    confirm_password: String,
+}
+
+#[derive(Serialize)]
+struct AuthResponse {
+    success: bool,
+    message: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    redirect_to: Option<String>,
+}
+
+// Updated forgot password handler
+// Di main.rs
+#[derive(Deserialize)]
+struct ForgotPasswordRequest {
+    email: String,
+}
+
+#[derive(Serialize)]
+struct ForgotPasswordResponse {
+    success: bool,
+    message: String,
+    verification_code: Option<String>, // Kirim kode verifikasi ke frontend
+}
+
+
+async fn forgot_password(
+    request: web::Json<ForgotPasswordRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    ).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    // 1. Cek apakah email ada di database
+    let user_exists = client.query_opt(
+        "SELECT id FROM users WHERE email = $1", 
+        &[&request.email]
+    ).await?;
+
+    if user_exists.is_none() {
+        return Ok(HttpResponse::Ok().json(ForgotPasswordResponse {
+            success: false,
+            message: "If this email exists, a verification code has been sent".to_string(),
+            verification_code: None,
+        }));
+    }
+
+    // 2. Generate kode verifikasi 6 digit
+    let verification_code = generate_6_digit_code();
+
+    // 3. Simpan ke database dengan expiry time
+    client.execute(
+        "INSERT INTO password_reset_codes (email, code, expires_at) 
+         VALUES ($1, $2, NOW() + INTERVAL '10 minutes')
+         ON CONFLICT (email) 
+         DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at",
+        &[&request.email, &verification_code],
+    ).await?;
+
+    // 4. Kirim email (implementasi ini sudah ada di kode Anda)
+    send_forgot_password_email(&request.email, &verification_code).await?;
+
+    Ok(HttpResponse::Ok().json(ForgotPasswordResponse {
+        success: true,
+        message: "Verification code sent".to_string(),
+        verification_code: Some(verification_code), // Kirim kode ke frontend
+    }))
+}
+
+#[derive(Deserialize)]
+struct GetEmailByCodeRequest {
+    code: String,
+}
+
+#[derive(Serialize)]
+struct EmailResponse {
+    email: String,
+}
+
+async fn get_email_by_code(
+    request: web::Json<GetEmailByCodeRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    ).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    // Cari email berdasarkan kode verifikasi yang masih valid
+    let row = client.query_one(
+        "SELECT email FROM password_reset_codes 
+         WHERE code = $1 AND expires_at > NOW()",
+        &[&request.code],
+    ).await?;
+
+    let email: String = row.get(0);
+
+    Ok(HttpResponse::Ok().json(EmailResponse { email }))
+}
+
+// Verification handler
+async fn verify_reset_code(request: web::Json<VerifyCodeRequest>) -> Result<HttpResponse, ApiError> {
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    ).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    // Verify code
+    let valid = client.query_opt(
+        "SELECT email FROM password_reset_codes 
+         WHERE email = $1 AND code = $2 AND expires_at > NOW()",
+        &[&request.email, &request.code],
+    ).await?;
+
+    if valid.is_none() {
+        return Ok(HttpResponse::Ok().json(AuthResponse {
+            success: false,
+            message: "Invalid or expired verification code".to_string(),
+            redirect_to: None,
+        }));
+    }
+
+    Ok(HttpResponse::Ok().json(AuthResponse {
+        success: true,
+        message: "Verification successful".to_string(),
+        redirect_to: Some("/newpassword".to_string()),
+    }))
+}
+
+// New password handler
+async fn set_new_password(request: web::Json<NewPasswordRequest>) -> Result<HttpResponse, ApiError> {
+    // Validate passwords match
+    if request.new_password != request.confirm_password {
+        return Ok(HttpResponse::BadRequest().json(AuthResponse {
+            success: false,
+            message: "Passwords do not match".to_string(),
+            redirect_to: None,
+        }));
+    }
+
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    ).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    // Verify code again (extra security)
+    let valid = client.query_opt(
+        "SELECT email FROM password_reset_codes 
+         WHERE email = $1 AND code = $2 AND expires_at > NOW()",
+        &[&request.email, &request.code],
+    ).await?;
+
+    if valid.is_none() {
+        return Ok(HttpResponse::BadRequest().json(AuthResponse {
+            success: false,
+            message: "Session expired. Please start the process again".to_string(),
+            redirect_to: Some("/forgot-password".to_string()),
+        }));
+    }
+
+    // Hash new password
+    let hashed_password = hash(&request.new_password, DEFAULT_COST)
+        .map_err(|_| ApiError::ValidationError("Failed to hash password".to_string()))?;
+
+    // Update password
+    client.execute(
+        "UPDATE users SET password = $1 WHERE email = $2",
+        &[&hashed_password, &request.email],
+    ).await?;
+
+    // Clean up reset code
+    client.execute(
+        "DELETE FROM password_reset_codes WHERE email = $1",
+        &[&request.email],
+    ).await?;
+
+    Ok(HttpResponse::Ok().json(AuthResponse {
+        success: true,
+        message: "Password updated successfully".to_string(),
+        redirect_to: Some("/login".to_string()),
+    }))
+}
+
+// Helper function to generate 6-digit code
+fn generate_6_digit_code() -> String {
+    let mut rng = rand::thread_rng();
+    format!("{:06}", rng.gen_range(0..1_000_000))
+}
+
+// Email sending function
+async fn send_forgot_password_email(email: &str, code: &str) -> Result<(), Box<dyn std::error::Error>> {
+    let email_message = Message::builder()
+        .from("theyywearr@gmail.com".parse()?)
+        .to(email.parse()?)
+        .subject("Password Reset Verification Code")
+        .body(format!(
+            "You requested to reset your password.\n\n\
+             Your verification code is: {}\n\n\
+             This code will expire in 10 minutes.",
+            code
+        ))?;
+
+    let creds = Credentials::new(
+        "theyywearr@gmail.com".to_string(),
+        "fdqakyyiwofdzixz".to_string(),
+    );
+
+    let mailer = SmtpTransport::relay("smtp.gmail.com")?
+        .credentials(creds)
+        .build();
+
+    mailer.send(&email_message)?;
+    Ok(())
+}
+#[derive(Deserialize)]
+struct VerifyAndGetEmailRequest {
+    code: String,
+}
+
+async fn verify_and_get_email(
+    request: web::Json<VerifyAndGetEmailRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    ).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    // Verifikasi kode dan dapatkan email
+    let row = client.query_one(
+        "SELECT email FROM password_reset_codes 
+         WHERE code = $1 AND expires_at > NOW()",
+        &[&request.code],
+    ).await?;
+
+    let email: String = row.get(0);
+
+    Ok(HttpResponse::Ok().json(json!({
+        "email": email,
+        "valid": true
+    })))
+}
 #[actix_web::main] // Di main.rs atau lib.rs
 async fn main() -> std::io::Result<()> {
     tokio::spawn(async {
@@ -2507,8 +2877,14 @@ async fn main() -> std::io::Result<()> {
                 "/user/{user_id}/address", // Add this line to support singular
                 web::post().to(add_address),
             )
+            .route("/get-email-by-code", web::post().to(get_email_by_code))
+            .route("/verify-and-get-email", web::post().to(verify_and_get_email))
             .route(
                 "/user/{user_id}/addresses", // Keep this existing line
+                web::post().to(add_address),
+            )
+            .route(
+                "/user/{user_id}/address/default", // Keep this existing line
                 web::post().to(add_address),
             )
             .route(
@@ -2551,6 +2927,10 @@ async fn main() -> std::io::Result<()> {
             )
             .route("/user/{user_id}/cart/clear", web::delete().to(clear_cart))
             .route("/user/{user_id}/cart/count", web::get().to(get_cart_count))
+            // In your main() function where you configure routes:
+.route("/forgot-password", web::post().to(forgot_password))
+.route("/forgot-password/verify", web::post().to(verify_reset_code))
+.route("/reset-password", web::post().to(set_new_password))
     })
     .bind("127.0.0.1:8080")?
     .run()
