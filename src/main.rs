@@ -1,11 +1,11 @@
 use actix_cors::Cors;
 use actix_files::NamedFile;
 use chrono::{DateTime, Utc};
-use reqwest;
-use serde_json;
 use dotenv::dotenv;
-use std::env;
+use reqwest;
+use serde_json::json;
 use std::collections::HashMap;
+use std::env;
 // use actix_web::http::header::ContentType;
 use actix_multipart::Multipart; // Untuk menangani multipart form data
 use actix_web::http::header::{ACCEPT, AUTHORIZATION, CONTENT_TYPE};
@@ -257,6 +257,269 @@ async fn logout(logout_data: web::Json<LogoutRequest>) -> Result<HttpResponse, A
     }))
 }
 
+#[derive(Debug, Deserialize)]
+struct CartItemRequest {
+    product_id: i32,
+    color: String,
+    color_code: String,
+    quantity: i32,
+}
+
+#[derive(Debug, Serialize)]
+struct CartItemResponse {
+    id: i32,
+    product_id: i32,
+    product_name: String,
+    product_category: String, 
+    product_image: Option<String>,
+    color: String,
+    color_code: String,
+    quantity: i32,
+    price: String,
+}
+
+#[derive(Debug, Serialize)]
+struct CartResponse {
+    items: Vec<CartItemResponse>,
+    total_price: f64,
+}
+
+async fn add_to_cart(
+    path: web::Path<i32>,
+    cart_item: web::Json<CartItemRequest>,
+) -> Result<HttpResponse, ApiError> {
+    let user_id = path.into_inner();
+
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    )
+    .await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    // Get product details including category
+    let product = client
+        .query_one(
+            "SELECT name, price, category, default_image FROM products WHERE id = $1",
+            &[&cart_item.product_id],
+        )
+        .await?;
+
+    // Try to insert or update existing cart item
+    let result = client
+        .query_one(
+            r#"
+        INSERT INTO user_carts (user_id, product_id, color, color_code, quantity)
+        VALUES ($1, $2, $3, $4, $5)
+        ON CONFLICT (user_id, product_id, color_code) 
+        DO UPDATE SET quantity = user_carts.quantity + EXCLUDED.quantity
+        RETURNING id, quantity
+        "#,
+            &[
+                &user_id,
+                &cart_item.product_id,
+                &cart_item.color,
+                &cart_item.color_code,
+                &cart_item.quantity,
+            ],
+        )
+        .await?;
+
+    let response = CartItemResponse {
+        id: result.get(0),
+        product_id: cart_item.product_id,
+        product_name: product.get(0),
+        product_category: product.get(2), // Added category
+        product_image: product.get(3),    // Changed from 2 to 3
+        color: cart_item.color.clone(),
+        color_code: cart_item.color_code.clone(),
+        quantity: result.get(1),
+        price: product.get(1),
+    };
+
+    Ok(HttpResponse::Created().json(response))
+}
+async fn get_cart_items(path: web::Path<i32>) -> Result<HttpResponse, ApiError> {
+    let user_id = path.into_inner();
+
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    )
+    .await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let items = client
+        .query(
+            r#"
+        SELECT 
+            c.id, 
+            c.product_id, 
+            p.name as product_name, 
+            p.category,
+            p.default_image as product_image,
+            c.color, 
+            c.color_code, 
+            c.quantity, 
+            p.price
+        FROM user_carts c
+        JOIN products p ON c.product_id = p.id
+        WHERE c.user_id = $1
+        ORDER BY c.created_at DESC
+        "#,
+            &[&user_id],
+        )
+        .await?;
+    let mut total_price = 0.0;
+    let cart_items: Vec<CartItemResponse> = items
+        .iter()
+        .map(|row| {
+            let price: String = row.get(8);  // Changed from 7 to 8 since we added a column
+            let price_val = price.parse::<f64>().unwrap_or(0.0);
+            total_price += price_val * row.get::<_, i32>(7) as f64;  // Changed from 6 to 7
+
+            CartItemResponse {
+                id: row.get(0),
+                product_id: row.get(1),
+                product_name: row.get(2),
+                product_category: row.get(3),  // Added this
+                product_image: row.get(4),      // Changed from 3 to 4
+                color: row.get(5),              // Changed from 4 to 5
+                color_code: row.get(6),         // Changed from 5 to 6
+                quantity: row.get(7),            // Changed from 6 to 7
+                price,
+            }
+        })
+        .collect();
+
+    Ok(HttpResponse::Ok().json(CartResponse {
+        items: cart_items,
+        total_price,
+    }))
+}
+
+async fn get_cart_count(path: web::Path<i32>) -> Result<HttpResponse, ApiError> {
+    let user_id = path.into_inner();
+
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    )
+    .await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let count = client
+        .query_one(
+            "SELECT COUNT(*) FROM user_carts WHERE user_id = $1",
+            &[&user_id],
+        )
+        .await?
+        .get::<_, i64>(0);
+
+    Ok(HttpResponse::Ok().json(json!({ "count": count })))
+}
+
+async fn update_cart_item(
+    path: web::Path<(i32, i32)>,
+    update_data: web::Json<HashMap<String, i32>>,
+) -> Result<HttpResponse, ApiError> {
+    let (user_id, item_id) = path.into_inner();
+    let new_quantity = update_data.get("quantity").copied().unwrap_or(1);
+
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    )
+    .await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let updated = client
+        .execute(
+            "UPDATE user_carts SET quantity = $1 WHERE id = $2 AND user_id = $3",
+            &[&new_quantity, &item_id, &user_id],
+        )
+        .await?;
+
+    if updated == 0 {
+        return Err(ApiError::NotFound("Cart item not found".to_string()));
+    }
+
+    Ok(HttpResponse::Ok().json(json!({ "message": "Cart item updated" })))
+}
+
+async fn remove_cart_item(path: web::Path<(i32, i32)>) -> Result<HttpResponse, ApiError> {
+    let (user_id, item_id) = path.into_inner();
+
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    )
+    .await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let deleted = client
+        .execute(
+            "DELETE FROM user_carts WHERE id = $1 AND user_id = $2",
+            &[&item_id, &user_id],
+        )
+        .await?;
+
+    if deleted == 0 {
+        return Err(ApiError::NotFound("Cart item not found".to_string()));
+    }
+
+    Ok(HttpResponse::Ok().json(json!({ "message": "Cart item removed" })))
+}
+
+async fn clear_cart(path: web::Path<i32>) -> Result<HttpResponse, ApiError> {
+    let user_id = path.into_inner();
+
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    )
+    .await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    client
+    .execute(
+        "DELETE FROM user_carts WHERE user_id = $1",
+        &[&user_id],
+    )
+    .await?;
+
+    Ok(HttpResponse::Ok().json(json!({ "message": "Cart cleared" })))
+}
 // Struct untuk response data user
 #[derive(Serialize)]
 struct User {
@@ -1575,6 +1838,7 @@ pub struct Product {
     pub price: String,
     pub default_image: Option<String>, // Changed to Option<String>
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub liked: Option<bool>,
 }
 
@@ -1938,6 +2202,7 @@ async fn get_products() -> Result<HttpResponse, ApiError> {
                     format!("http://127.0.0.1:8080/uploads/products/{}", img)
                 }
             }),
+            description: None,
             liked: Some(false),
         })
         .collect();
@@ -1947,13 +2212,11 @@ async fn get_products() -> Result<HttpResponse, ApiError> {
 
 async fn get_product_details(path: web::Path<i32>) -> Result<HttpResponse, ApiError> {
     let product_id = path.into_inner();
-
     let (client, connection) = tokio_postgres::connect(
         "postgres://postgres:erida999@localhost:5432/postgres",
         NoTls,
     )
-    .await
-    .map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+    .await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -1961,38 +2224,37 @@ async fn get_product_details(path: web::Path<i32>) -> Result<HttpResponse, ApiEr
         }
     });
 
-    // Query to get product details
-    let product = match client
-        .query_one(
-            "SELECT id, name, category, price, default_image FROM products WHERE id = $1",
-            &[&product_id],
-        )
-        .await
-    {
-        Ok(row) => Product {
-            id: row.get(0),
-            name: row.get(1),
-            category: row.get(2),
-            price: row.get(3),
-            default_image: row.get::<_, Option<String>>(4).map(|img| {
-                if img.starts_with("http") {
-                    img
-                } else {
-                    format!("http://127.0.0.1:8080/uploads/products/{}", img)
-                }
-            }),
-            liked: Some(false),
-        },
-        Err(e) => {
-            return Err(ApiError::NotFound(format!("Product not found: {}", e)));
-        }
-    };
+    // Query product
+    let product_row = client.query_one(
+        "SELECT id, name, category, price, default_image, description FROM products WHERE id = $1",
+        &[&product_id],
+    ).await?;
 
-    // Query to get product colors
+    // Query colors
     let colors = client.query(
         "SELECT color_name as color, color_image as image FROM product_colors WHERE product_id = $1",
         &[&product_id],
-    ).await.map_err(|e| ApiError::DatabaseError(e.to_string()))?;
+    ).await?;
+
+    // Query if liked (asumsi ada parameter user_id di query string)
+    // Ini perlu disesuaikan dengan implementasi aktual Anda
+    let liked = false; // Default false, perlu diimplementasi query ke product_likes
+
+    let product = Product {
+        id: product_row.get(0),
+        name: product_row.get(1),
+        category: product_row.get(2),
+        price: product_row.get(3),
+        default_image: product_row.get::<_, Option<String>>(4).map(|img| {
+            if img.starts_with("http") {
+                img
+            } else {
+                format!("http://127.0.0.1:8080/uploads/products/{}", img)
+            }
+        }),
+        description: product_row.get(5),
+        liked: Some(liked), // Kirim status liked
+    };
 
     let color_list: Vec<ProductColor> = colors
         .iter()
@@ -2050,10 +2312,7 @@ struct LikeRequest {
     product_id: i32,
 }
 
-
-async fn toggle_product_like(
-    like_data: web::Json<LikeRequest>,
-) -> Result<HttpResponse, ApiError> {
+async fn toggle_product_like(like_data: web::Json<LikeRequest>) -> Result<HttpResponse, ApiError> {
     let (mut client, connection) = tokio_postgres::connect(
         "postgres://postgres:erida999@localhost:5432/postgres",
         NoTls,
@@ -2143,27 +2402,29 @@ async fn get_user_likes(
 
     let query = match search_query {
         Some(query) if !query.is_empty() => {
-            // Query dengan pencarian dan urutkan berdasarkan ID ascending
-            client.query(
-                "SELECT p.id, p.name, p.category, p.price, p.default_image 
+            client
+                .query(
+                    "SELECT p.id, p.name, p.category, p.price, p.default_image 
                  FROM products p
                  JOIN product_likes pl ON p.id = pl.product_id
                  WHERE pl.user_id = $1 
                  AND LOWER(p.name) LIKE $2
-                 ORDER BY p.id ASC",  // Ditambahkan ORDER BY p.id ASC
-                &[&user_id.into_inner(), &format!("%{}%", query)],
-            ).await?
-        },
+                 ORDER BY p.id ASC",
+                    &[&user_id.into_inner(), &format!("%{}%", query)],
+                )
+                .await?
+        }
         _ => {
-            // Tanpa query pencarian - tampilkan semua favorit diurutkan by ID
-            client.query(
-                "SELECT p.id, p.name, p.category, p.price, p.default_image 
+            client
+                .query(
+                    "SELECT p.id, p.name, p.category, p.price, p.default_image 
                  FROM products p
                  JOIN product_likes pl ON p.id = pl.product_id
                  WHERE pl.user_id = $1
-                 ORDER BY p.id ASC",  // Ditambahkan ORDER BY p.id ASC
-                &[&user_id.into_inner()],
-            ).await?
+                 ORDER BY p.id ASC",
+                    &[&user_id.into_inner()],
+                )
+                .await?
         }
     };
 
@@ -2181,13 +2442,13 @@ async fn get_user_likes(
                     format!("http://127.0.0.1:8080/uploads/products/{}", img)
                 }
             }),
+            description: None, // Kolom description tidak diambil dari query
             liked: Some(true),
         })
         .collect();
 
     Ok(HttpResponse::Ok().json(products))
 }
-
 
 #[actix_web::main] // Di main.rs atau lib.rs
 async fn main() -> std::io::Result<()> {
@@ -2207,14 +2468,11 @@ async fn main() -> std::io::Result<()> {
         .max_age(3600);
     // Create users table if it doesn't exist
     dotenv().ok(); // Load .env file
-    
-    let database_url = env::var("DATABASE_URL")
-        .expect("DATABASE_URL must be set in .env");
-    
+
+    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
+
     // Gunakan database_url di koneksi PostgreSQL
-    let (client, connection) = tokio_postgres::connect(&database_url, NoTls)
-        .await
-        .unwrap();
+    let (client, connection) = tokio_postgres::connect(&database_url, NoTls).await.unwrap();
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             eprintln!("Connection error: {}", e);
@@ -2279,7 +2537,20 @@ async fn main() -> std::io::Result<()> {
             .route("/api/products/upload", web::post().to(upload_product_image))
             .route("/api/product-colors", web::get().to(get_all_product_colors))
             .route("/api/products/like", web::post().to(toggle_product_like))
-.route("/user/{user_id}/likes", web::get().to(get_user_likes))
+            .route("/user/{user_id}/likes", web::get().to(get_user_likes))
+            // Add these routes to your HttpServer::new() configuration
+            .route("/user/{user_id}/cart", web::get().to(get_cart_items))
+            .route("/user/{user_id}/cart", web::post().to(add_to_cart))
+            .route(
+                "/user/{user_id}/cart/{item_id}",
+                web::put().to(update_cart_item),
+            )
+            .route(
+                "/user/{user_id}/cart/{item_id}",
+                web::delete().to(remove_cart_item),
+            )
+            .route("/user/{user_id}/cart/clear", web::delete().to(clear_cart))
+            .route("/user/{user_id}/cart/count", web::get().to(get_cart_count))
     })
     .bind("127.0.0.1:8080")?
     .run()
