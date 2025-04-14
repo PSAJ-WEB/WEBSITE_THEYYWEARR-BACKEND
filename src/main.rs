@@ -43,6 +43,7 @@ struct LoginResponse {
     id: i32,
     email: String,
     last_activity: String, // Tambahkan ini
+    role: String,
 }
 
 #[derive(Serialize)]
@@ -146,14 +147,15 @@ async fn login(credentials: web::Json<LoginRequest>) -> Result<HttpResponse, Act
         }
     });
 
-    // Get user from database - SEKARANG MENGAMBIL id, fullname, password, dan email
+    // Update query untuk mengambil role juga
     let statement = client
-        .prepare("SELECT id, fullname, password, email, last_activity FROM users WHERE email = $1")
+        .prepare("SELECT id, fullname, password, email, last_activity, role FROM users WHERE email = $1")
         .await
         .map_err(|e| {
             eprintln!("Prepare statement error: {}", e);
             actix_web::error::ErrorInternalServerError("Database statement preparation error")
         })?;
+
     let last_activity: NaiveDateTime = Utc::now().naive_utc();
     match client.query_opt(&statement, &[&credentials.email]).await {
         Ok(Some(row)) => {
@@ -161,7 +163,8 @@ async fn login(credentials: web::Json<LoginRequest>) -> Result<HttpResponse, Act
             let fullname: String = row.get(1);
             let stored_password: String = row.get(2);
             let user_email: String = row.get(3);
-            let last_activity: NaiveDateTime = row.get(4); // Asumsi kolom ke-4 adalah last_activity
+            let last_activity: NaiveDateTime = row.get(4);
+            let role: String = row.get(5); // Ambil role dari database
 
             match verify(&credentials.password, &stored_password) {
                 Ok(valid) => {
@@ -173,12 +176,14 @@ async fn login(credentials: web::Json<LoginRequest>) -> Result<HttpResponse, Act
                             eprintln!("Failed to update online status: {}", e);
                             actix_web::error::ErrorInternalServerError("Failed to update status")
                         })?;
+                        
                         Ok(HttpResponse::Ok().json(LoginResponse {
                             message: "Login successful".to_string(),
                             fullname,
                             id,
                             email: user_email,
                             last_activity: last_activity.format("%Y-%m-%d %H:%M:%S").to_string(),
+                            role, // Kirim role ke frontend
                         }))
                     } else {
                         Ok(HttpResponse::Unauthorized().json(LoginResponse {
@@ -187,6 +192,7 @@ async fn login(credentials: web::Json<LoginRequest>) -> Result<HttpResponse, Act
                             id: 0,
                             email: String::new(),
                             last_activity: last_activity.format("%Y-%m-%d %H:%M:%S").to_string(),
+                            role: "user".to_string(),
                         }))
                     }
                 }
@@ -196,6 +202,7 @@ async fn login(credentials: web::Json<LoginRequest>) -> Result<HttpResponse, Act
                     id: 0,
                     email: String::new(),
                     last_activity: last_activity.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    role: "user".to_string(),
                 })),
             }
         }
@@ -205,6 +212,7 @@ async fn login(credentials: web::Json<LoginRequest>) -> Result<HttpResponse, Act
             id: 0,
             email: String::new(),
             last_activity: last_activity.format("%Y-%m-%d %H:%M:%S").to_string(),
+            role: "user".to_string(),
         })),
         Err(e) => {
             eprintln!("Database error: {}", e);
@@ -214,9 +222,53 @@ async fn login(credentials: web::Json<LoginRequest>) -> Result<HttpResponse, Act
                 id: 0,
                 email: String::new(),
                 last_activity: last_activity.format("%Y-%m-%d %H:%M:%S").to_string(),
+                role: "user".to_string(),
             }))
         }
     }
+}
+
+#[derive(Deserialize)]
+struct CheckAdminRequest {
+    user_id: i32,
+}
+
+#[derive(Serialize)]
+struct CheckAdminResponse {
+    is_admin: bool,
+}
+
+async fn check_admin(user_id: web::Json<CheckAdminRequest>) -> Result<HttpResponse, ActixError> {
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    )
+    .await
+    .map_err(|e| {
+        eprintln!("Connection error: {}", e);
+        actix_web::error::ErrorInternalServerError("Database connection error")
+    })?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let row = client.query_one(
+        "SELECT role FROM users WHERE id = $1",
+        &[&user_id.user_id],
+    )
+    .await
+    .map_err(|e| {
+        eprintln!("Database error: {}", e);
+        actix_web::error::ErrorInternalServerError("Database error")
+    })?;
+
+    let role: String = row.get(0);
+    Ok(HttpResponse::Ok().json(CheckAdminResponse {
+        is_admin: role == "admin",
+    }))
 }
 
 #[derive(Deserialize)]
@@ -523,6 +575,9 @@ struct User {
     fullname: String,
     email: String,
     password: String,
+    role: String,        // Add this
+    is_online: bool,     // Add this
+    last_activity: Option<NaiveDateTime>,
     birthday: Option<NaiveDate>,
     gender: Option<String>,
     img: Option<String>,
@@ -549,7 +604,7 @@ async fn get_users() -> Result<HttpResponse, ActixError> {
 
     // Query untuk mendapatkan semua user
     let statement = client
-        .prepare("SELECT id, fullname, email, password FROM users")
+        .prepare("SELECT id, fullname, email, password, role, is_online, last_activity FROM users")
         .await
         .map_err(|e| {
             eprintln!("Prepare statement error: {}", e);
@@ -569,6 +624,9 @@ async fn get_users() -> Result<HttpResponse, ActixError> {
             fullname: row.get(1),
             email: row.get(2),
             password: row.get(3),
+            role: row.get(4),          // Add this
+            is_online: row.get(5),    // Add this
+            last_activity: row.get(6),
             birthday: None,
             gender: None,
             img: None,
@@ -1253,17 +1311,18 @@ struct AddressRequest {
     #[serde(skip_deserializing)]
     user_id: i32,
 }
-#[derive(Serialize)]
-struct AddressResponse {
-    id: i32,
-    recipient_name: String,
-    phone_number: String,
-    address: String,
-    zip_code: String,
-    is_default: bool,
-    address_type: String, // Add this field
-    created_at: DateTime<Utc>,
+#[derive(Debug, Serialize)]
+pub struct AddressResponse {
+    pub id: i32,
+    pub recipient_name: String,
+    pub phone_number: String,
+    pub address: String,
+    pub zip_code: String,
+    pub is_default: bool,
+    pub address_type: String,
+    // pub created_at: String,
 }
+
 
 async fn add_address(
     path: web::Path<i32>,
@@ -1341,7 +1400,7 @@ async fn add_address(
         zip_code: row.get(4),
         is_default: row.get(5),
         address_type: row.get(6),
-        created_at: row.get(7),
+        // created_at: row.get(7),
     };
 
     Ok(HttpResponse::Created().json(address))
@@ -1384,7 +1443,7 @@ async fn get_user_addresses(user_id: web::Path<i32>) -> Result<HttpResponse, Api
             zip_code: row.get(4),
             is_default: row.get(5),
             address_type: row.get(6),
-            created_at: row.get(7),
+            // created_at: row.get(7),
         })
         .collect();
 
@@ -1464,7 +1523,7 @@ async fn update_address(
                 zip_code: row.get(4),
                 is_default: row.get(5),
                 address_type: row.get(6),
-                created_at: row.get(7),
+                // created_at: row.get(7),
             };
 
             Ok(HttpResponse::Ok().json(address))
@@ -1734,12 +1793,28 @@ async fn get_default_address(user_id: web::Path<i32>) -> Result<HttpResponse, Ap
                 zip_code: row.get(4),
                 is_default: row.get(5),
                 address_type: row.get(6),
-                created_at: Utc::now(),
+                // created_at dihapus
             };
             Ok(HttpResponse::Ok().json(address))
         }
         Err(_) => Err(ApiError::NotFound("No default address found".to_string())),
     }
+}
+
+#[derive(Debug, Serialize)]
+struct OrderResponse {
+    id: i32,
+    order_date: chrono::NaiveDateTime,
+    status: String,
+    total_amount: String,
+    subtotal: String,
+    delivery_fee: String,
+}
+
+#[derive(Debug, Serialize)]
+struct PendingOrderResponse {
+    order: OrderResponse,
+    qr_code_url: String,
 }
 async fn create_order(
     path: web::Path<i32>,
@@ -1874,9 +1949,9 @@ async fn create_order(
     })?;
 
     Ok(HttpResponse::Created().json(json!({
-        "order_id": order_id,
-        "total_amount": total_amount, // Kirim kembali total_amount
-        "message": "Order created successfully"
+        "id": order_id,  // This is what the frontend expects as result.id
+        "message": "Order created successfully",
+        "total_amount": total_amount
     })))
 }
 
@@ -1890,6 +1965,141 @@ struct ParsedOrderItem {
     price: String,      // Original string for DB
     parsed_price: f64,  // Parsed value for validation
     category: String,
+}
+// Add these structs near your other struct definitions
+#[derive(Debug, Serialize)]
+pub struct OrderDetailResponse {
+    pub id: i32,
+    pub order_date: chrono::NaiveDateTime,
+    pub status: String,
+    pub total_amount: String,
+    pub items: Vec<OrderItem>,
+    pub address: Option<AddressResponse>,
+    pub notes: Option<String>,
+    pub subtotal: String,
+    pub delivery_fee: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct PendingPaymentResponse {
+    pub order: OrderDetailResponse,
+}
+
+// Handler to get order details
+async fn get_order_details(
+    path: web::Path<(i32, i32)>, // (user_id, order_id)
+) -> Result<HttpResponse, ApiError> {
+    let (user_id, order_id) = path.into_inner();
+
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    ).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    // Get order main details
+    let order_row = client.query_one(
+        "SELECT id, order_date, status, total_amount, notes 
+         FROM user_orders 
+         WHERE id = $1 AND user_id = $2",
+        &[&order_id, &user_id],
+    ).await?;
+
+    // Get order items
+    let items = client.query(
+        "SELECT product_name, product_image, color, color_code, quantity, price
+         FROM order_items
+         WHERE order_id = $1",
+        &[&order_id],
+    ).await?;
+
+    let order_items: Vec<OrderItem> = items
+    .iter()
+    .map(|row| OrderItem {
+        id: row.get(0),
+        product_name: row.get(1),
+        product_image: row.get(2),
+        color: row.get(3),
+        color_code: row.get(4),
+        quantity: row.get(5),
+        price: row.get(6),
+    })
+    .collect();
+
+    // Calculate subtotal (sum of all items' price * quantity)
+    let subtotal: f64 = order_items.iter()
+        .map(|item| item.price.parse::<f64>().unwrap_or(0.0) * item.quantity as f64)
+        .sum();
+    
+    // Calculate delivery fee (10% of subtotal for example)
+    let delivery_fee = subtotal * 0.1;
+
+    // Get address if available
+    let address_row = client.query_opt(
+        "SELECT a.recipient_name, a.phone_number, a.address, a.zip_code, a.address_type
+         FROM user_addresses a
+         JOIN user_orders o ON o.address_id = a.id
+         WHERE o.id = $1 AND o.user_id = $2",
+        &[&order_id, &user_id],
+    ).await?;
+
+    let address = address_row.map(|row| AddressResponse {
+        id: row.get(0),
+        recipient_name: row.get(1),
+        phone_number: row.get(2),
+        address: row.get(3),
+        zip_code: row.get(4),
+        is_default: row.get(5),
+        address_type: row.get(6),
+        // created_at: row.get(7),
+    });
+
+    Ok(HttpResponse::Ok().json(OrderDetailResponse {
+        id: order_row.get(0),
+        order_date: order_row.get(1),
+        status: order_row.get(2),
+        total_amount: order_row.get(3),
+        items: order_items,
+        address,
+        notes: order_row.get(4),
+        subtotal: format!("{:.3}", subtotal),
+        delivery_fee: format!("{:.3}", delivery_fee),
+    }))
+}
+
+// Handler to update order notes
+async fn update_order_notes(
+path: web::Path<(i32, i32)>, // (user_id, order_id)
+notes: web::Json<HashMap<String, String>>,
+) -> Result<HttpResponse, ApiError> {
+let (user_id, order_id) = path.into_inner();
+let notes_text = notes.get("notes").cloned().unwrap_or_default();
+
+let (client, connection) = tokio_postgres::connect(
+"postgres://postgres:erida999@localhost:5432/postgres",
+NoTls,
+).await?;
+
+tokio::spawn(async move {
+if let Err(e) = connection.await {
+    eprintln!("Connection error: {}", e);
+}
+});
+
+client.execute(
+"UPDATE user_orders SET notes = $1 
+ WHERE id = $2 AND user_id = $3",
+&[&notes_text, &order_id, &user_id],
+).await?;
+
+Ok(HttpResponse::Ok().json(json!({
+"message": "Notes updated successfully"
+})))
 }
 #[derive(Debug, Deserialize)]
 struct UpdateProduct {
@@ -1924,6 +2134,7 @@ pub struct Product {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     pub liked: Option<bool>,
+    pub likes_count: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -2252,7 +2463,11 @@ async fn upload_product_image(mut payload: Multipart) -> Result<HttpResponse, Ac
     }))
 }
 
-async fn get_products() -> Result<HttpResponse, ApiError> {
+async fn get_pending_order(
+    path: web::Path<(i32, i32)>, // (user_id, order_id)
+) -> Result<HttpResponse, ApiError> {
+    let (user_id, order_id) = path.into_inner();
+
     let (client, connection) = tokio_postgres::connect(
         "postgres://postgres:erida999@localhost:5432/postgres",
         NoTls,
@@ -2265,12 +2480,83 @@ async fn get_products() -> Result<HttpResponse, ApiError> {
         }
     });
 
-    let products = client
-        .query(
-            "SELECT id, name, category, price, default_image FROM products ORDER BY id ASC",
-            &[],
-        )
-        .await?;
+    // Get order details
+    let order_row = client.query_one(
+        "SELECT id, order_date, status, total_amount 
+         FROM user_orders 
+         WHERE id = $1 AND user_id = $2",
+        &[&order_id, &user_id],
+    )
+    .await?;
+
+    // Get order items
+    let items = client.query(
+        "SELECT id, product_name, product_image, color, color_code, quantity, price
+         FROM order_items
+         WHERE order_id = $1",
+        &[&order_id],
+    )
+    .await?;
+
+    // Calculate subtotal and delivery fee
+    let subtotal: f64 = items.iter()
+        .map(|row| {
+            let price: String = row.get(6);
+            let quantity: i32 = row.get(5);
+            price.parse::<f64>().unwrap_or(0.0) * quantity as f64
+        })
+        .sum();
+    
+    let delivery_fee = subtotal * 0.1; // 10% of subtotal as delivery fee
+
+    let order = OrderResponse {
+        id: order_row.get(0),
+        order_date: order_row.get(1),
+        status: order_row.get(2),
+        total_amount: order_row.get(3),
+        subtotal: format!("{:.2}", subtotal),
+        delivery_fee: format!("{:.2}", delivery_fee),
+    };
+
+    // In a real app, you would generate a dynamic QR code here
+    // For now, we'll use a static image
+    let qr_code_url = "/uploads/qris.jpg".to_string();
+
+    Ok(HttpResponse::Ok().json(PendingOrderResponse {
+        order,
+        qr_code_url,
+    }))
+}
+
+async fn get_products() -> Result<HttpResponse, ApiError> {
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    ).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let products = client.query(
+        r#"
+        SELECT 
+            p.id, 
+            p.name, 
+            p.category, 
+            p.price, 
+            p.default_image, 
+            p.description,
+            COUNT(pl.id) as likes_count
+        FROM products p
+        LEFT JOIN product_likes pl ON p.id = pl.product_id
+        GROUP BY p.id
+        ORDER BY p.id ASC
+        "#,
+        &[],
+    ).await?;
 
     let product_list: Vec<Product> = products
         .iter()
@@ -2279,15 +2565,10 @@ async fn get_products() -> Result<HttpResponse, ApiError> {
             name: row.get(1),
             category: row.get(2),
             price: row.get(3),
-            default_image: row.get::<_, Option<String>>(4).map(|img| {
-                if img.starts_with("http") {
-                    img
-                } else {
-                    format!("http://127.0.0.1:8080/uploads/products/{}", img)
-                }
-            }),
-            description: None,
-            liked: Some(false),
+            default_image: row.get(4),
+            description: row.get(5),
+            liked: None,  // You can set this based on user context if needed
+            likes_count: row.get(6),  // This now matches the struct
         })
         .collect();
 
@@ -2299,8 +2580,7 @@ async fn get_product_details(path: web::Path<i32>) -> Result<HttpResponse, ApiEr
     let (client, connection) = tokio_postgres::connect(
         "postgres://postgres:erida999@localhost:5432/postgres",
         NoTls,
-    )
-    .await?;
+    ).await?;
 
     tokio::spawn(async move {
         if let Err(e) = connection.await {
@@ -2308,9 +2588,22 @@ async fn get_product_details(path: web::Path<i32>) -> Result<HttpResponse, ApiEr
         }
     });
 
-    // Query product
+    // Query product with likes count
     let product_row = client.query_one(
-        "SELECT id, name, category, price, default_image, description FROM products WHERE id = $1",
+        r#"
+        SELECT 
+            p.id, 
+            p.name, 
+            p.category, 
+            p.price, 
+            p.default_image, 
+            p.description,
+            COUNT(pl.id) as likes_count
+        FROM products p
+        LEFT JOIN product_likes pl ON p.id = pl.product_id
+        WHERE p.id = $1
+        GROUP BY p.id
+        "#,
         &[&product_id],
     ).await?;
 
@@ -2320,9 +2613,9 @@ async fn get_product_details(path: web::Path<i32>) -> Result<HttpResponse, ApiEr
         &[&product_id],
     ).await?;
 
-    // Query if liked (asumsi ada parameter user_id di query string)
-    // Ini perlu disesuaikan dengan implementasi aktual Anda
-    let liked = false; // Default false, perlu diimplementasi query ke product_likes
+    // Query if liked (you'll need to pass user_id as parameter)
+    // For now keeping it as false - implement this based on your auth system
+    let liked = false;
 
     let product = Product {
         id: product_row.get(0),
@@ -2337,7 +2630,8 @@ async fn get_product_details(path: web::Path<i32>) -> Result<HttpResponse, ApiEr
             }
         }),
         description: product_row.get(5),
-        liked: Some(liked), // Kirim status liked
+        liked: Some(liked),
+        likes_count: product_row.get(6), // Add the likes count
     };
 
     let color_list: Vec<ProductColor> = colors
@@ -2528,6 +2822,7 @@ async fn get_user_likes(
             }),
             description: None, // Kolom description tidak diambil dari query
             liked: Some(true),
+            likes_count: row.get(6),
         })
         .collect();
 
@@ -2790,6 +3085,55 @@ async fn send_forgot_password_email(email: &str, code: &str) -> Result<(), Box<d
 #[derive(Deserialize)]
 struct VerifyAndGetEmailRequest {
     code: String,
+// 
+}
+#[derive(Serialize)]
+struct AdminUser {
+    id: i32,
+    fullname: String,
+    email: String,
+    role: String,
+    is_online: bool,
+    last_activity: Option<String>,
+}
+
+
+async fn get_admin_users() -> Result<HttpResponse, ApiError> {
+    // Connect to database
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    )
+    .await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    // Query all users with their details
+    let rows = client.query(
+        "SELECT id, fullname, email, role, is_online, last_activity 
+         FROM users 
+         WHERE role = 'admin'
+         ORDER BY last_activity DESC",
+        &[],
+    ).await?;
+
+    let users: Vec<AdminUser> = rows.iter().map(|row| {
+        AdminUser {
+            id: row.get(0),
+            fullname: row.get(1),
+            email: row.get(2),
+            role: row.get(3),
+            is_online: row.get(4),
+            last_activity: row.get::<_, Option<NaiveDateTime>>(5)
+                .map(|dt| dt.format("%Y-%m-%d %H:%M:%S").to_string()),
+        }
+    }).collect();
+
+    Ok(HttpResponse::Ok().json(users))
 }
 
 async fn verify_and_get_email(
@@ -2819,6 +3163,57 @@ async fn verify_and_get_email(
         "email": email,
         "valid": true
     })))
+}
+
+#[derive(Serialize)]
+struct CurrentUserResponse {
+    id: i32,
+    fullname: String,
+    email: String,
+    role: String,
+    img: Option<String>,
+    is_online: bool,
+}
+
+// Add this route handler
+async fn get_current_user(
+    req: actix_web::HttpRequest,
+) -> Result<HttpResponse, ApiError> {
+    // Extract user ID from headers or token (you'll need to implement this)
+    // For now, I'll assume you're passing user_id as a header
+    let user_id = req.headers().get("x-user-id")
+        .ok_or(ApiError::ValidationError("User ID not provided".to_string()))?
+        .to_str()
+        .map_err(|_| ApiError::ValidationError("Invalid user ID".to_string()))?
+        .parse::<i32>()
+        .map_err(|_| ApiError::ValidationError("Invalid user ID".to_string()))?;
+
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    ).await?;
+
+    tokio::spawn(async move {
+        if let Err(e) = connection.await {
+            eprintln!("Connection error: {}", e);
+        }
+    });
+
+    let row = client.query_one(
+        "SELECT id, fullname, email, role, img, is_online FROM users WHERE id = $1",
+        &[&user_id],
+    ).await?;
+
+    let user = CurrentUserResponse {
+        id: row.get(0),
+        fullname: row.get(1),
+        email: row.get(2),
+        role: row.get(3),
+        img: row.get(4),
+        is_online: row.get(5),
+    };
+
+    Ok(HttpResponse::Ok().json(user))
 }
 #[actix_web::main] // Di main.rs atau lib.rs
 async fn main() -> std::io::Result<()> {
@@ -2861,6 +3256,16 @@ async fn main() -> std::io::Result<()> {
             .route("/verifyotp", web::post().to(verify_otp))
             .route("/user/{id}", web::get().to(get_user_by_id))
             .route("/profile", web::post().to(get_profile))
+            .route("/admin/users", web::get().to(get_admin_users))
+            .route("/api/current-user", web::get().to(get_current_user))
+            .route(
+                "/user/{user_id}/order/{order_id}",
+                web::get().to(get_order_details),
+            )
+            .route(
+                "/user/{user_id}/order/{order_id}/notes",
+                web::put().to(update_order_notes),
+            )
             .route(
                 "/profile/{id}/upload",
                 web::post().to(upload_profile_picture),
@@ -2927,6 +3332,7 @@ async fn main() -> std::io::Result<()> {
             )
             .route("/user/{user_id}/cart/clear", web::delete().to(clear_cart))
             .route("/user/{user_id}/cart/count", web::get().to(get_cart_count))
+            .route("/check-admin", web::post().to(check_admin))
             // In your main() function where you configure routes:
 .route("/forgot-password", web::post().to(forgot_password))
 .route("/forgot-password/verify", web::post().to(verify_reset_code))
@@ -2936,3 +3342,4 @@ async fn main() -> std::io::Result<()> {
     .run()
     .await
 }
+
