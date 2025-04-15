@@ -54,7 +54,7 @@ struct RegisterResponse {
 async fn register(new_user: web::Json<NewUser>) -> Result<HttpResponse, ActixError> {
     // Connect to the database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -132,7 +132,7 @@ async fn register(new_user: web::Json<NewUser>) -> Result<HttpResponse, ActixErr
 async fn login(credentials: web::Json<LoginRequest>) -> Result<HttpResponse, ActixError> {
     // Connect to database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -240,7 +240,7 @@ struct CheckAdminResponse {
 
 async fn check_admin(user_id: web::Json<CheckAdminRequest>) -> Result<HttpResponse, ActixError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -278,7 +278,7 @@ struct LogoutRequest {
 
 async fn logout(logout_data: web::Json<LogoutRequest>) -> Result<HttpResponse, ActixError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -343,7 +343,7 @@ async fn add_to_cart(
     let user_id = path.into_inner();
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -408,7 +408,7 @@ async fn get_cart_items(path: web::Path<i32>) -> Result<HttpResponse, ApiError> 
     let user_id = path.into_inner();
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -460,7 +460,7 @@ async fn get_cart_count(path: web::Path<i32>) -> Result<HttpResponse, ApiError> 
     let user_id = path.into_inner();
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -490,7 +490,7 @@ async fn update_cart_item(
     let new_quantity = update_data.get("quantity").copied().unwrap_or(1);
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -519,7 +519,7 @@ async fn remove_cart_item(path: web::Path<(i32, i32)>) -> Result<HttpResponse, A
     let (user_id, item_id) = path.into_inner();
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -548,7 +548,7 @@ async fn clear_cart(path: web::Path<i32>) -> Result<HttpResponse, ApiError> {
     let user_id = path.into_inner();
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -587,7 +587,7 @@ struct User {
 async fn get_users() -> Result<HttpResponse, ActixError> {
     // Koneksi ke database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -653,7 +653,7 @@ async fn edit_user(
     let user_id = path.into_inner();
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -775,7 +775,7 @@ struct VerifyOtpRequest {
 async fn verify_otp(otp_request: web::Json<VerifyOtpRequest>) -> Result<HttpResponse, ActixError> {
     // Koneksi ke database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -846,7 +846,7 @@ async fn get_profile(
 ) -> Result<HttpResponse, ActixError> {
     // Connect to the database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -980,7 +980,7 @@ async fn upload_profile_picture(
 
         // Update database
         let (client, connection) = tokio_postgres::connect(
-            "postgres://postgres:erida999@localhost:5432/postgres",
+            "postgres://postgres:pekodokan@localhost:5432/postgres",
             NoTls,
         )
         .await
@@ -1042,7 +1042,7 @@ async fn get_user_by_id(path: web::Path<i32>) -> Result<HttpResponse, ActixError
 
     // Koneksi database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -1107,7 +1107,7 @@ async fn update_activity(path: web::Path<i32>) -> Result<HttpResponse, ActixErro
     let user_id = path.into_inner();
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -1140,7 +1140,7 @@ async fn update_activity(path: web::Path<i32>) -> Result<HttpResponse, ActixErro
 
 async fn get_online_users() -> Result<HttpResponse, ActixError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -1216,7 +1216,7 @@ async fn serve_image(path: web::Path<String>) -> Result<NamedFile, ActixError> {
 }
 async fn deactivate_inactive_users() -> Result<(), ActixError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -1338,7 +1338,7 @@ async fn add_address(
     println!("Adding address for user {}: {:?}", user_id, address_data);
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -1409,7 +1409,7 @@ async fn add_address(
 async fn get_user_addresses(user_id: web::Path<i32>) -> Result<HttpResponse, ApiError> {
     // Connect to database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -1463,7 +1463,7 @@ async fn update_address(
 
     // Connect to database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -1545,7 +1545,7 @@ async fn delete_address(
 
     // Connect to database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -1681,7 +1681,7 @@ pub struct UserOrder {
 
 async fn get_user_orders(user_id: web::Path<i32>) -> Result<HttpResponse, ApiError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -1765,7 +1765,7 @@ struct OrderItemRequest {
 
 async fn get_default_address(user_id: web::Path<i32>) -> Result<HttpResponse, ApiError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -1867,7 +1867,7 @@ async fn create_order(
 
 
     let (mut client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await.map_err(|e| {
         eprintln!("Database connection error: {}", e);
@@ -1992,7 +1992,7 @@ async fn get_order_details(
     let (user_id, order_id) = path.into_inner();
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -2081,7 +2081,7 @@ let (user_id, order_id) = path.into_inner();
 let notes_text = notes.get("notes").cloned().unwrap_or_default();
 
 let (client, connection) = tokio_postgres::connect(
-"postgres://postgres:erida999@localhost:5432/postgres",
+"postgres://postgres:pekodokan@localhost:5432/postgres",
 NoTls,
 ).await?;
 
@@ -2156,7 +2156,7 @@ async fn update_product_colors(
     let product_id = path.into_inner();
 
     let (mut client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -2210,7 +2210,7 @@ async fn delete_product(path: web::Path<i32>) -> Result<HttpResponse, ApiError> 
     let product_id = path.into_inner();
 
     let (mut client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -2265,7 +2265,7 @@ async fn update_product(
     let product_id = path.into_inner();
 
     let (mut client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -2332,7 +2332,7 @@ async fn update_product(
 
 async fn add_product(new_product: web::Json<NewProduct>) -> Result<HttpResponse, ApiError> {
     let (mut client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
@@ -2466,7 +2466,7 @@ async fn upload_product_image(mut payload: Multipart) -> Result<HttpResponse, Ac
 
 async fn get_products() -> Result<HttpResponse, ApiError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -2514,7 +2514,7 @@ async fn get_products() -> Result<HttpResponse, ApiError> {
 async fn get_product_details(path: web::Path<i32>) -> Result<HttpResponse, ApiError> {
     let product_id = path.into_inner();
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -2588,7 +2588,7 @@ async fn get_product_details(path: web::Path<i32>) -> Result<HttpResponse, ApiEr
 
 async fn get_all_product_colors() -> Result<HttpResponse, ApiError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -2628,7 +2628,7 @@ struct LikeRequest {
 
 async fn toggle_product_like(like_data: web::Json<LikeRequest>) -> Result<HttpResponse, ApiError> {
     let (mut client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -2703,7 +2703,7 @@ async fn get_user_likes(
     let search_query = params.get("search").map(|s| s.to_lowercase());
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -2810,7 +2810,7 @@ async fn forgot_password(
     request: web::Json<ForgotPasswordRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -2870,7 +2870,7 @@ async fn get_email_by_code(
     request: web::Json<GetEmailByCodeRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -2895,7 +2895,7 @@ async fn get_email_by_code(
 // Verification handler
 async fn verify_reset_code(request: web::Json<VerifyCodeRequest>) -> Result<HttpResponse, ApiError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -2939,7 +2939,7 @@ async fn set_new_password(request: web::Json<NewPasswordRequest>) -> Result<Http
     }
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -3037,7 +3037,7 @@ struct AdminUser {
 async fn get_admin_users() -> Result<HttpResponse, ApiError> {
     // Connect to database
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await?;
@@ -3076,7 +3076,7 @@ async fn verify_and_get_email(
     request: web::Json<VerifyAndGetEmailRequest>,
 ) -> Result<HttpResponse, ApiError> {
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -3125,7 +3125,7 @@ async fn get_current_user(
         .map_err(|_| ApiError::ValidationError("Invalid user ID".to_string()))?;
 
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     ).await?;
 
@@ -3169,7 +3169,7 @@ async fn main() -> std::io::Result<()> {
         .max_age(3600);
     // Create users table if it doesn't exist
     let (client, connection) = tokio_postgres::connect(
-        "postgres://postgres:erida999@localhost:5432/postgres",
+        "postgres://postgres:pekodokan@localhost:5432/postgres",
         NoTls,
     )
     .await
