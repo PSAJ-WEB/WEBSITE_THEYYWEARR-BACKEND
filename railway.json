@@ -1,6 +1,7 @@
 {
-    "builds": [
-      { "src": "Dockerfile", "use": "@vercel/docker" }
-    ]
+  "build": {
+    "builder": "nixpacks",
+    "buildCommand": "pnpm build",
+    "startCommand": "pnpm start"
   }
-  
+}
