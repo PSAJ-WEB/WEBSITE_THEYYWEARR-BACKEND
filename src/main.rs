@@ -3232,12 +3232,17 @@ async fn main() -> std::io::Result<()> {
         .allowed_headers(vec![AUTHORIZATION, ACCEPT, CONTENT_TYPE])
         .max_age(3600);
     // Create users table if it doesn't exist
-    dotenv().ok(); // Load .env file
+    let (client, connection) = tokio_postgres::connect(
+        "postgres://postgres:erida999@localhost:5432/postgres",
+        NoTls,
+    )
+    .await
+    .map_err(|e| {
+        eprintln!("Failed to connect to database: {}", e);
+        std::io::Error::new(std::io::ErrorKind::ConnectionRefused, "Database connection failed")
+    })?;
 
-    let database_url = env::var("DATABASE_URL").expect("DATABASE_URL must be set in .env");
-
-    // Gunakan database_url di koneksi PostgreSQL
-    let (client, connection) = tokio_postgres::connect(&database_url, NoTls).await.unwrap();
+    // Handle connection in background
     tokio::spawn(async move {
         if let Err(e) = connection.await {
             eprintln!("Connection error: {}", e);
