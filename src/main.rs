@@ -2758,7 +2758,7 @@ async fn get_user_likes(
             }),
             description: None, // Kolom description tidak diambil dari query
             liked: Some(true),
-            likes_count: row.get(6),
+            likes_count: 0,
         })
         .collect();
 
